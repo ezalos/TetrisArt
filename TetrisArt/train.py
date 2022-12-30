@@ -1,18 +1,22 @@
 import torch
-from TetrisArt.model.CNNFeatureExtractor import CNNFeatureExtractor
-from TetrisArt.TetrisEnv import TetrisEnv
+from TetrisArt.model.FeatureExtractor.NetNDim import NetNDim
+from stable_baselines3.common.evaluation import evaluate_policy
+from TetrisArt.env.TetrisEnv import TetrisEnv
+from TetrisArt.env.WrapperNumpy import WrapperNumpy
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 import os
 import time
+import gym
+# from TetrisBattle.envs.tetris_env import TetrisSingleEnv
 
 best_hp = {
-	'gamma': 0.9693554805549407, 
-	'learning_rate': 0.00019655203272629694,
-	'policy_kwargs': dict(
-            features_extractor_class=CNNFeatureExtractor,
-            activation_fn=torch.nn.LeakyReLU,
-            net_arch=[dict(pi=[64, 64, 64, 64], vf=[64, 64, 64, 64])],
+    'gamma': 0.97, 
+    'learning_rate': 0.0002,
+    'policy_kwargs': dict(
+            features_extractor_class=NetNDim,
+            # activation_fn=torch.nn.ReLU,
+            net_arch=[dict(pi=[32], vf=[32])],
         ),
 }
 
@@ -23,28 +27,31 @@ def render_one_game(env, model):
         action, _states = model.predict(obs)
         obs, rewards, done, info = env.step(action.item())
         env.render()
-        time.sleep(.01)
+        time.sleep(.02)
+    env.close()
 
 
 def train_and_save(model_name: str="ppo_tetris_custom_cnn", steps:int = 250_000):
-	width, height = 10, 24
-	env = TetrisEnv(width, height)
+    env = gym.make("Tetris-v1")
+    check_env(env)
+    model_path = f"models/{model_name}"
 
-	check_env(env)
-	model_path = f"models/{model_name}"
+    if os.path.exists(f"{model_path}.zip"):
+        print("Loading model!")
+        model = PPO.load(model_path, env=env, tensorboard_log=f".logs/{model_name}/")
+    else:
+        print("Creating new model!")
+        model = PPO("MlpPolicy", env, verbose=1, **best_hp, tensorboard_log=f".logs/{model_name}/")
+        # model = PPO("CnnPolicy", env, verbose=1)
 
-	if os.path.exists(f"{model_path}.zip"):
-		print("Loading model!")
-		model = PPO.load(model_path, env=env)
-	else:
-		print("Creating new model!")
-		model = PPO("MlpPolicy", env, verbose=1, **best_hp)
+    print(f"{model.policy = }")
+    
+    while True:
+        model.learn(total_timesteps=steps, reset_num_timesteps=False)
+        mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
+        print(f"{mean_reward = }")
+        print(f"{std_reward = }")
+        model.save(model_path)
 
-	while True:
-		print(f"{model.policy = }")
-
-		model.learn(total_timesteps=steps)
-		model.save(model_path)
-		
-		render_one_game(env, model)
+        # render_one_game(env, model)
 
